@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ir-192 Dose Rate Calculator</title>
+</head>
+<body>
+    <h1>Ir-192 Dose Rate Calculator</h1>
+    <div>
+        <h3>Enter Calculation Point Coordinates (cm):</h3>
+        X: <input type="number" id="calcX" step="0.01" value="1">
+        Y: <input type="number" id="calcY" step="0.01" value="1">
+        Z: <input type="number" id="calcZ" step="0.01" value="1">
+    </div>
+    <div>
+        <h3>Enter Source Information:</h3>
+        Dwell Position X (cm): <input type="number" id="dwellX" step="0.01" value="0">
+        Dwell Position Y (cm): <input type="number" id="dwellY" step="0.01" value="0">
+        Dwell Position Z (cm): <input type="number" id="dwellZ" step="0.01" value="0">
+        Dwell Time (s): <input type="number" id="dwellTime" value="60">
+        Source Activity (mCi): <input type="number" id="activity" value="10000">
+        <button onclick="calculateDose()">Calculate Dose</button>
+    </div>
+    <h3>Calculated Dose:</h3>
+    <p id="doseResult">Dose to the Calculation Point = </p>
+
+    <script>
+        const radialDoseFile = 'radial_dose_file.csv';
+        const anisotropyFile = 'anisotropy_file.csv';
+
+        async function loadRadialDoseValue(distance) {
+            const response = await fetch(radialDoseFile);
+            const data = await response.text();
+            const rows = data.trim().split('\n');
+            let nearestValue = NaN;
+
+            for (let i = 1; i < rows.length; i++) {
+                const [r, g_L] = rows[i].split(',').map(parseFloat);
+                if (Math.abs(r - distance) < 0.1) {
+                    nearestValue = g_L;
+                    console.log(`Nearest g_L(r) for r = ${distance}: ${nearestValue}`);
+                    break;
+                }
+            }
+            return nearestValue;
+        }
+
+        async function loadAnisotropyValue(distance, theta) {
+            const response = await fetch(anisotropyFile);
+            const data = await response.text();
+            const rows = data.trim().split('\n');
+            const headers = rows[0].split(',');
+            let nearestF = NaN;
+
+            for (let i = 1; i < rows.length; i++) {
+                const cells = rows[i].split(',').map(parseFloat);
+                const r = cells[0];
+                if (Math.abs(r - distance) < 0.1) {
+                    nearestF = cells[Math.round(theta)];
+                    console.log(`Nearest F(r, θ) for r = ${distance}, θ = ${theta}: ${nearestF}`);
+                    break;
+                }
+            }
+            return nearestF;
+        }
+
+        async function calculateDose() {
+            try {
+                const x = parseFloat(document.getElementById('calcX').value);
+                const y = parseFloat(document.getElementById('calcY').value);
+                const z = parseFloat(document.getElementById('calcZ').value);
+                const dx = parseFloat(document.getElementById('dwellX').value);
+                const dy = parseFloat(document.getElementById('dwellY').value);
+                const dz = parseFloat(document.getElementById('dwellZ').value);
+                const dwellTime = parseFloat(document.getElementById('dwellTime').value);
+                const activity = parseFloat(document.getElementById('activity').value);
+
+                const distance = Math.sqrt((x - dx) ** 2 + (y - dy) ** 2 + (z - dz) ** 2);
+                console.log(`Calculated Distance: ${distance}`);
+
+                // Constants for Ir-192
+                const Sk = 4.03;  // cGy·cm²/hr per mCi
+                const Lambda = 1.100;  // cGy/hr·U
+
+                // Load Radial Dose and Anisotropy Function values
+                const g_L_r = await loadRadialDoseValue(distance);
+                const theta = Math.atan2(y - dy, x - dx) * (180 / Math.PI);
+                const F_theta_r = await loadAnisotropyValue(distance, Math.abs(theta));
+
+                if (isNaN(g_L_r) || isNaN(F_theta_r)) {
+                    throw new Error("Could not find valid radial dose or anisotropy values.");
+                }
+
+                // Calculate dose
+                const dose = Sk * Lambda * g_L_r * F_theta_r * activity * dwellTime;
+                console.log(`Calculated Dose: ${dose} cGy`);
+
+                document.getElementById('doseResult').innerText = `Dose to the Calculation Point = ${dose.toFixed(2)} cGy`;
+            } catch (error) {
+                console.error('Error:', error);
+                document.getElementById('doseResult').innerText = 'Error calculating dose. Check input values and CSV files.';
+            }
+        }
+    </script>
+</body>
+</html>
